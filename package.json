@@ -1,0 +1,23 @@
+{
+    "name": "meta-mcp-server",
+    "version": "1.0.0",
+    "description": "MCP server for the Meta Graph API - Facebook Page posts, Instagram posts, and Meta Marketing API (ad campaigns) for a business's own Meta App",
+    "type": "module",
+    "main": "dist/index.js",
+    "scripts": {
+          "start": "node dist/index.js",
+          "build": "tsc"
+    },
+    "engines": {
+          "node": ">=18"
+    },
+    "dependencies": {
+          "@modelcontextprotocol/sdk": "^1.6.1",
+          "axios": "^1.7.9",
+          "zod": "^3.23.8"
+    },
+    "devDependencies": {
+          "@types/node": "^22.10.0",
+          "typescript": "^5.7.2"
+    }
+}
