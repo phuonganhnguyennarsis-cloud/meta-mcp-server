@@ -59,11 +59,6 @@ async function runHttp(port: number): Promise<void> {
     process.exit(1);
   }
 
-  const server = buildServer();
-  // Stateless mode: no session tracking needed for a small single-tenant tool server.
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await server.connect(transport);
-
   const httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
@@ -106,6 +101,18 @@ async function runHttp(port: number): Promise<void> {
     }
 
     try {
+      // Stateless mode: build a fresh server + transport per request. A single shared
+      // transport cannot be reused across requests in stateless mode (sessionIdGenerator:
+      // undefined) — after the first request it ends up in a state where every later
+      // request fails, so we create new ones every time and let them get garbage-collected
+      // once the response closes.
+      const server = buildServer();
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      res.on("close", () => {
+        transport.close();
+        server.close();
+      });
+      await server.connect(transport);
       await transport.handleRequest(req, res, parsedBody);
     } catch (error) {
       console.error("Error handling MCP request:", error);
