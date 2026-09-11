@@ -22,6 +22,29 @@ const pageIdField = z.union([z.string(), z.array(z.string()).min(1)]).optional()
 
 type PageIdInput = string | string[] | undefined;
 
+// Page content endpoints (feed posts, photos, deleting a post) require an actual Page Access
+// Token — the System User / Business token alone is not accepted there even when the System
+// User has "manage posts" access to the Page (that grants the *ability* to mint a Page token,
+// it isn't usable directly). Instagram's Content Publishing API doesn't have this requirement,
+// which is why IG posting works with the System User token but plain Page posting didn't.
+// We exchange for it once per Page per server instance and cache it (server instances are
+// short-lived in stateless HTTP mode, so this is a small, safe win rather than a persistent store).
+const pageAccessTokenCache = new Map<string, string>();
+
+async function getPageAccessToken(pageId: string): Promise<string> {
+  const cached = pageAccessTokenCache.get(pageId);
+  if (cached) return cached;
+  const data = await graphGet<{ access_token?: string }>(pageId, { fields: "access_token" });
+  if (!data.access_token) {
+    throw new Error(
+      `Could not obtain a Page Access Token for Page ${pageId}. In Business Settings, make sure the System User ` +
+        `has "Content" (manage posts) task access assigned directly on this Page.`
+    );
+  }
+  pageAccessTokenCache.set(pageId, data.access_token);
+  return data.access_token;
+}
+
 /** Resolves the page_id argument to one or more concrete Page IDs. */
 function resolvePageIds(pageId: PageIdInput): string[] {
   if (Array.isArray(pageId)) {
@@ -200,7 +223,8 @@ Don't use for photos/videos — use meta_create_page_photo_post for images.`,
           body.scheduled_publish_time = params.scheduled_publish_time;
         }
         const postOne = async (pageId: string) => {
-          const data: any = await graphPost(`${pageId}/feed`, body);
+          const pageToken = await getPageAccessToken(pageId);
+          const data: any = await graphPost(`${pageId}/feed`, body, pageToken);
           return { page_id: pageId, id: data.id, scheduled: Boolean(params.scheduled_publish_time) };
         };
         const results = await Promise.allSettled(pageIds.map(postOne));
@@ -288,7 +312,8 @@ To post the same photo to several Pages in one go (e.g. all Narsis Pages), pass 
           body.scheduled_publish_time = params.scheduled_publish_time;
         }
         const postOne = async (pageId: string) => {
-          const data: any = await graphPost(`${pageId}/photos`, body);
+          const pageToken = await getPageAccessToken(pageId);
+          const data: any = await graphPost(`${pageId}/photos`, body, pageToken);
           return {
             page_id: pageId,
             id: data.id,
@@ -358,7 +383,9 @@ This is irreversible. Use when the user explicitly asks to remove/delete/take do
     },
     async (params: z.infer<typeof DeletePostSchema>) => {
       try {
-        const data: any = await graphDelete(params.post_id);
+        const [pageId] = params.post_id.split("_");
+        const pageToken = pageId ? await getPageAccessToken(pageId).catch(() => undefined) : undefined;
+        const data: any = await graphDelete(params.post_id, {}, pageToken);
         return {
           content: [{ type: "text", text: data.success ? "Post deleted successfully." : "Delete request sent." }],
           structuredContent: { success: Boolean(data.success) },
