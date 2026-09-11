@@ -179,6 +179,73 @@ Use when: "Post this photo/reel to our Instagram". Don't use for multi-image car
     }
   );
 
+  // --- meta_create_instagram_story --------------------------------------------
+  const StoryMediaTypeEnum = z.enum(["IMAGE", "VIDEO"]);
+
+  const CreateIgStorySchema = z
+    .object({
+      ig_user_id: igUserIdField,
+      media_type: StoryMediaTypeEnum.describe("'IMAGE' for a photo story, 'VIDEO' for a video story."),
+      media_url: z
+        .string()
+        .url()
+        .describe("Publicly reachable URL of the image (jpg) or video (mp4/mov) to post as a Story."),
+    })
+    .strict();
+
+  server.registerTool(
+    "meta_create_instagram_story",
+    {
+      title: "Create Instagram Story",
+      description: `Publish a single image or video to an Instagram Business account's Story (visible 24 hours). Two-step Meta workflow (create container with media_type STORIES, then publish) handled as one call; for VIDEO it waits for Meta to finish processing before publishing.
+
+Args:
+  - ig_user_id (string, optional): Instagram Business Account ID. Defaults to META_IG_USER_ID if configured.
+  - media_type ('IMAGE' | 'VIDEO', required): Story type.
+  - media_url (string, required): Publicly reachable URL of the image or video (Meta's servers fetch it).
+
+Returns JSON: { id } — the published story's media ID.
+
+IMPORTANT LIMITATION: Meta's Graph API for Stories does not support adding music stickers, link/swipe-up stickers, polls, or any other interactive sticker — the Content Publishing API only supports a plain image/video Story. Those stickers can only be added by hand inside the Instagram app.
+
+Requires 'instagram_content_publish' permission and the IG account must be linked to a Facebook Page the token manages.
+
+Use when: "Post this photo/video to our Instagram Story."`,
+      inputSchema: CreateIgStorySchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (params: z.infer<typeof CreateIgStorySchema>) => {
+      try {
+        const igUserId = resolveIgUserId(params.ig_user_id);
+        const containerBody: Record<string, unknown> = { media_type: "STORIES" };
+        if (params.media_type === "VIDEO") {
+          containerBody.video_url = params.media_url;
+        } else {
+          containerBody.image_url = params.media_url;
+        }
+        const container: any = await graphPost(`${igUserId}/media`, containerBody);
+        if (params.media_type === "VIDEO") {
+          await waitForContainerReady(container.id);
+        }
+        const published: any = await graphPost(`${igUserId}/media_publish`, {
+          creation_id: container.id,
+        });
+        const output = { id: published.id };
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Instagram Story published (plain story — no music/link sticker; add those by hand in-app if needed). Media ID: ${output.id}`,
+            },
+          ],
+          structuredContent: output,
+        };
+      } catch (error) {
+        return { isError: true, content: [{ type: "text", text: handleGraphError(error) }] };
+      }
+    }
+  );
+
   // --- meta_create_instagram_carousel_post -----------------------------------
   const CreateIgCarouselSchema = z
     .object({
