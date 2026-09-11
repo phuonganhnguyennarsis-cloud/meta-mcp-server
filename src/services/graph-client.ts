@@ -16,27 +16,36 @@ interface GraphErrorBody {
   };
 }
 
-/** GET request against the Graph API. `path` is relative, e.g. "me/accounts". */
+/**
+ * GET request against the Graph API. `path` is relative, e.g. "me/accounts".
+ * `accessToken` overrides the default (e.g. a Page Access Token instead of the System User token)
+ * — needed for Page content endpoints, see getPageAccessToken() in tools/facebook.ts.
+ */
 export async function graphGet<T>(
   path: string,
-  params: Record<string, unknown> = {}
+  params: Record<string, unknown> = {},
+  accessToken?: string
 ): Promise<T> {
   const response = await axios.get<T>(`${GRAPH_API_BASE_URL}/${path}`, {
-    params: { ...params, access_token: config.accessToken },
+    params: { ...params, access_token: accessToken ?? config.accessToken },
     timeout: 30000,
   });
   return response.data;
 }
 
-/** POST request against the Graph API. Sent as a form body, which is what the Graph API expects. */
+/**
+ * POST request against the Graph API. Sent as a form body, which is what the Graph API expects.
+ * `accessToken` overrides the default — see graphGet().
+ */
 export async function graphPost<T>(
   path: string,
-  data: Record<string, unknown> = {}
+  data: Record<string, unknown> = {},
+  accessToken?: string
 ): Promise<T> {
   const body = new URLSearchParams();
   for (const [key, value] of Object.entries({
     ...data,
-    access_token: config.accessToken,
+    access_token: accessToken ?? config.accessToken,
   })) {
     if (value === undefined || value === null) continue;
     body.append(key, typeof value === "string" ? value : JSON.stringify(value));
@@ -47,13 +56,14 @@ export async function graphPost<T>(
   return response.data;
 }
 
-/** DELETE request against the Graph API. */
+/** DELETE request against the Graph API. `accessToken` overrides the default — see graphGet(). */
 export async function graphDelete<T>(
   path: string,
-  params: Record<string, unknown> = {}
+  params: Record<string, unknown> = {},
+  accessToken?: string
 ): Promise<T> {
   const response = await axios.delete<T>(`${GRAPH_API_BASE_URL}/${path}`, {
-    params: { ...params, access_token: config.accessToken },
+    params: { ...params, access_token: accessToken ?? config.accessToken },
     timeout: 30000,
   });
   return response.data;
